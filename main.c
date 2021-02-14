@@ -1,16 +1,18 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
 #include "malloc.h"
 
-int main(int argc, char **argv) {
+void *work(void *arg) {
+    int size = (int) arg;
     int **array;
-    int size = 10;
-    printf("ok\n");
+    
     array = malloc(size * sizeof(int *));
-     printf("ok\n");
+    
     for (int i = 0; i < size; i++) {
         array[i] = malloc(size * sizeof(int));
-    }
-
+    } 
+   
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
             array[i][j] = i + j;
@@ -24,7 +26,22 @@ int main(int argc, char **argv) {
         printf("\n");         
     }
     
-    free(NULL);
+    for (int i = 0; i < size; i++)
+        free(array[i]);
+    
+    free(array);    
+}
+
+int main(int argc, char **argv) {
+    int size = atoi(argv[2]);
+    int nthreads = atoi(argv[1]);
+    pthread_t threads[nthreads];
+    
+    for (int i = 0; i < nthreads; i++)
+        pthread_create(&threads[i], NULL, work, (void *) size);
+
+    for (int i = 0; i < nthreads; i++) 
+		pthread_join(threads[i], NULL);	
 
     return 0;
 }

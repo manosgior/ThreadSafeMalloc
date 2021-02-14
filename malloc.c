@@ -16,60 +16,44 @@ __thread Freelist *freeList = NULL;
 
 Freelist *allocate(size_t size) {
 	Freelist *toReturn;
-	void *tmp;
-	int numPages =  ((size + sizeof(struct freeNode) - 1) / sysconf(_SC_PAGESIZE)) + 1;
-	size_t correctSize = numPages * sysconf(_SC_PAGESIZE);
+	void *tmp;	
 	
 	pthread_mutex_lock(&lock);
 	toReturn = sbrk(0);
-	tmp = sbrk(correctSize);
+	tmp = sbrk(size + sizeof(struct freeNode));
 	pthread_mutex_unlock(&lock);
 	
 	if (tmp == (void *) -1) {
 		perror("sbrk error");
 		return NULL;
 	}
-	toReturn->size = correctSize;
+	toReturn->size = size;
 	toReturn->next = NULL;
 
 	return toReturn;
 }
 
-void insert(Freelist *curr, size_t size) {	
-	curr->size = size;
-	curr->next = freeList;
-	freeList = curr;			
-}
-
-void split(Freelist *list, size_t size) {
-	int numSegments = list->size / (size + sizeof(struct freeNode));
-	uint8_t *ptr = (uint8_t *) list;
-	
-	for (int i = 0; i < numSegments; i++) {
-		insert((Freelist *) (ptr + i * (sizeof(struct freeNode) + size)), size);
-	}
-}
-
 void *getChunk(size_t size) {
-	Freelist *toReturn = NULL, *pred = NULL, *curr = freeList;
+	Freelist *toReturn = NULL, *toReturnPred = NULL, *pred = NULL, *curr = freeList;
 
 	while (curr != NULL) {
 		if (curr->size >= size) {
-			if (toReturn == NULL || curr->size < toReturn->size)
+			if (toReturn == NULL || curr->size < toReturn->size) {
+				toReturnPred = pred;
 				toReturn = curr;
+			}
 		}
-		pred = curr;
+		pred = curr;		
 		curr = curr->next;
 	}
-
-	if (toReturn != NULL) {		
-		if (pred == freeList)
+	if (toReturn != NULL) {
+		if (toReturnPred == NULL)
 			freeList = NULL;
 		else
-			pred->next = NULL;	
+			toReturnPred->next = toReturn->next;
 	}
 
-	return (void *) toReturn + sizeof(struct freeNode);
+	return (void *) toReturn;
 }
 
 void *malloc(size_t size) {
@@ -78,18 +62,23 @@ void *malloc(size_t size) {
 	if (size <= 0)
 		return NULL;
 	
-	if (freeList == NULL) {
-		split(allocate(size), size);
-	}
-	if ((toReturn = getChunk(size)) == NULL) {
-		split(allocate(size), size);
-		toReturn = getChunk(size);
+	toReturn = getChunk(size);
+
+	if (toReturn == NULL) {
+		toReturn = (void *) (allocate(size) + 1);
 	}
 
 	return toReturn;
 }
 
 void free(void *ptr){
-	Freelist *chunk = (Freelist *) (((uint8_t *) ptr) - sizeof(struct freeNode));
-	assert(0);
+	Freelist *chunk;
+
+	if (ptr == NULL)
+		return;	
+
+	chunk = (Freelist *) (((uint8_t *) ptr) - sizeof(struct freeNode));
+	
+	chunk->next = freeList;
+	freeList = chunk;
 }
