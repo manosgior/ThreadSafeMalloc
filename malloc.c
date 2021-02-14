@@ -1,48 +1,95 @@
 #include <unistd.h>
 #include <pthread.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <assert.h>
 #include "malloc.h"
 
-#define PAGE_SIZE 4096
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct freeNode {
 	size_t size;
 	struct freeNode *next;	
 } Freelist;
 
-__thread Freelist *list64 = NULL;
-__thread Freelist *list256 = NULL;
-__thread Freelist *list512 = NULL;
-__thread Freelist *list1024 = NULL;
-__thread Freelist *list4096 = NULL;
+__thread Freelist *freeList = NULL;
 
+Freelist *allocate(size_t size) {
+	Freelist *toReturn;
+	void *tmp;
+	int numPages =  ((size + sizeof(struct freeNode) - 1) / sysconf(_SC_PAGESIZE)) + 1;
+	size_t correctSize = numPages * sysconf(_SC_PAGESIZE);
+	
+	pthread_mutex_lock(&lock);
+	toReturn = sbrk(0);
+	tmp = sbrk(correctSize);
+	pthread_mutex_unlock(&lock);
+	
+	if (tmp == (void *) -1) {
+		perror("sbrk error");
+		return NULL;
+	}
+	toReturn->size = correctSize;
+	toReturn->next = NULL;
 
-Freelist *getList(size_t size) {
-	if (size <= 64 - sizeof(struct freeNode))
-		return list64;
-	else if (size <= 256 - sizeof(struct freeNode))
-		return list256;
-	else if (size <= 512 - sizeof(struct freeNode))
-		return list512;
-	else if (size <= 1024 - sizeof(struct freeNode))
-		return list1024;
-	else
-		return list4096;
+	return toReturn;
+}
+
+void insert(Freelist *curr, size_t size) {	
+	curr->size = size;
+	curr->next = freeList;
+	freeList = curr;			
 }
 
 void split(Freelist *list, size_t size) {
-
+	int numSegments = list->size / (size + sizeof(struct freeNode));
+	uint8_t *ptr = (uint8_t *) list;
+	
+	for (int i = 0; i < numSegments; i++) {
+		insert((Freelist *) (ptr + i * (sizeof(struct freeNode) + size)), size);
+	}
 }
 
-pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+void *getChunk(size_t size) {
+	Freelist *toReturn = NULL, *pred = NULL, *curr = freeList;
 
-void mallocInit() {
-	
+	while (curr != NULL) {
+		if (curr->size >= size) {
+			if (toReturn == NULL || curr->size < toReturn->size)
+				toReturn = curr;
+		}
+		pred = curr;
+		curr = curr->next;
+	}
+
+	if (toReturn != NULL) {		
+		if (pred == freeList)
+			freeList = NULL;
+		else
+			pred->next = NULL;	
+	}
+
+	return (void *) toReturn + sizeof(struct freeNode);
 }
 
 void *malloc(size_t size) {
+	void *toReturn = NULL;
 
+	if (size <= 0)
+		return NULL;
+	
+	if (freeList == NULL) {
+		split(allocate(size), size);
+	}
+	if ((toReturn = getChunk(size)) == NULL) {
+		split(allocate(size), size);
+		toReturn = getChunk(size);
+	}
+
+	return toReturn;
 }
 
 void free(void *ptr){
-
+	Freelist *chunk = (Freelist *) (((uint8_t *) ptr) - sizeof(struct freeNode));
+	assert(0);
 }
