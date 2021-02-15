@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <stdint.h>
 #include "malloc.h"
 
 void *work(void *arg) {
-    int size = (int) arg;
+    int size = (int)(uintptr_t) arg;
     int **array;
     
     array = malloc(size * sizeof(int *));
@@ -33,12 +34,18 @@ void *work(void *arg) {
 }
 
 int main(int argc, char **argv) {
+	
+	if (argc != 3) {
+		fprintf(stderr, "usage: ./mallocTest num_threads array_size\n");
+		return -1;
+	}
+
     int size = atoi(argv[2]);
     int nthreads = atoi(argv[1]);
     pthread_t threads[nthreads];
     
     for (int i = 0; i < nthreads; i++)
-        pthread_create(&threads[i], NULL, work, (void *) size);
+        pthread_create(&threads[i], NULL, work, (void *)(uintptr_t) size);
 
     for (int i = 0; i < nthreads; i++) 
 		pthread_join(threads[i], NULL);	
